@@ -84,8 +84,33 @@ st.write("Analyze factor exposures and build custom factor-based portfolios usin
 @st.cache_data
 def load_data():
     try:
-        # Check file size first
-        file_path = "data/final_adjusted_stock_data.csv"
+        # Try different possible paths for different platforms
+        possible_paths = [
+            "data/final_adjusted_stock_data.csv",
+            "./data/final_adjusted_stock_data.csv", 
+            "../data/final_adjusted_stock_data.csv",
+            "/app/data/final_adjusted_stock_data.csv"
+        ]
+        
+        # Debug information to see what's happening
+        current_dir = os.getcwd()
+        st.write(f"Current working directory: {current_dir}")
+        available_dirs = os.listdir()
+        st.write(f"Available directories: {available_dirs}")
+        
+        # Check if any of the possible paths exist
+        file_path = None
+        for path in possible_paths:
+            if os.path.exists(path):
+                file_path = path
+                st.write(f"Found data file at: {file_path}")
+                break
+        
+        if file_path is None:
+            st.error("Data file not found. Please check if the file exists and is in the correct location.")
+            return pd.DataFrame()
+            
+        # Continue with your existing chunking logic
         file_size_gb = os.path.getsize(file_path) / (1024 * 1024 * 1024)
         
         if file_size_gb > 0.5:  # If file is larger than 500MB
@@ -111,6 +136,9 @@ def load_data():
             return df
     except Exception as e:
         st.error(f"Error loading data: {str(e)}")
+        # Show the full error to debug
+        import traceback
+        st.code(traceback.format_exc())
         return pd.DataFrame()
 
 # Calculate returns
