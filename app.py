@@ -10,10 +10,38 @@ import plotly.graph_objects as go
 import gc
 import time
 import os
+import glob
 import warnings
 
 # Suppress warnings
 warnings.filterwarnings('ignore')
+
+# Check for split data files
+def check_data_files():
+    # Look for split CSV files
+    data_dir = "data"
+    csv_parts = sorted(glob.glob(f"{data_dir}/part_*.csv"))
+    
+    if not csv_parts:
+        st.error("No data files found! Please make sure the split CSV files are uploaded to the data directory.")
+        st.info("The app is looking for files named 'part_XX.csv' in the data directory.")
+        
+        # Show available files/directories for debugging
+        if os.path.exists(data_dir):
+            files = os.listdir(data_dir)
+            st.write(f"Files found in data directory: {files}")
+        else:
+            st.write("Data directory not found!")
+            
+        return False
+    
+    st.success(f"Found {len(csv_parts)} data file parts!")
+    
+    # Check the size of the files
+    total_size_mb = sum(os.path.getsize(f) for f in csv_parts) / (1024 * 1024)
+    st.write(f"Total data size: {total_size_mb:.2f} MB")
+    
+    return True
 
 # Inject custom CSS to center ONLY the date picker without affecting dropdowns
 st.markdown(
@@ -68,33 +96,6 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# Add at the beginning of your app.py
-def check_data_file():
-    import os
-    
-    file_path = "data/final_adjusted_stock_data.csv"
-    
-    if not os.path.exists(file_path):
-        st.error("Data file not found!")
-        st.stop()
-    
-    file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
-    
-    if file_size_mb < 1.0:  # Less than 1MB, likely a pointer
-        with open(file_path, 'r') as f:
-            content = f.read(100)
-            if "git-lfs" in content:
-                st.error("Data file is a Git LFS pointer, not the actual content!")
-                st.info("The app needs the full data file to function properly.")
-                st.code(content)
-                st.stop()
-    else:
-        st.success(f"Data file found with size: {file_size_mb:.2f} MB")
-
-# Call this function early in your app
-check_data_file()
-
-
 # Helper function to create tooltips
 def tooltip(text, tooltip_text):
     return f"""
@@ -107,88 +108,50 @@ def tooltip(text, tooltip_text):
 st.title("Indian Market Factor Model & Smart Beta Portfolio Builder")
 st.write("Analyze factor exposures and build custom factor-based portfolios using Indian stock market data")
 
-# Memory-efficient data loading with chunking
+# Verify that data files are available
+if not check_data_files():
+    st.stop()
+
+# Modified load_data function to handle split files
 @st.cache_data
 def load_data():
     try:
-        # Try different possible paths for different platforms
-        file_path = "data/final_adjusted_stock_data.csv"
+        # Look for split CSV files
+        data_dir = "data"
+        csv_parts = sorted(glob.glob(f"{data_dir}/part_*.csv"))
         
-        st.write(f"Current working directory: {os.getcwd()}")
-        st.write(f"Available directories: {os.listdir()}")
-        
-        if os.path.exists(file_path):
-            st.write(f"Found data file at: {file_path}")
-            # Check file size
-            file_size = os.path.getsize(file_path)
-            st.write(f"File size: {file_size / (1024*1024):.2f} MB")
-            
-            # Preview the file content
-            with open(file_path, 'r') as f:
-                preview = f.read(1000)  # Read first 1000 characters
-            st.write("File content preview:")
-            st.code(preview)
-            
-            # Try loading with pandas and check columns
-            df = pd.read_csv(file_path, nrows=5)  # Just load a few rows
-            st.write("DataFrame columns:", df.columns.tolist())
-            st.write("DataFrame preview:")
-            st.write(df.head())
-            
-            # Now load the whole file
-            if file_size > 500 * 1024 * 1024:  # If larger than 500MB
-                chunk_size = 500000
-                chunks = []
-                for chunk in pd.read_csv(file_path, chunksize=chunk_size, low_memory=False):
-                    # Check if DATE column exists in this chunk
-                    if 'DATE' not in chunk.columns:
-                        st.error(f"DATE column not found in dataframe. Available columns: {chunk.columns.tolist()}")
-                        # Try to find a column that might be the date column
-                        for col in chunk.columns:
-                            if 'date' in col.lower():
-                                st.write(f"Found possible date column: {col}")
-                                chunk['DATE'] = pd.to_datetime(chunk[col])
-                                break
-                        else:
-                            # If no date column found, create a placeholder
-                            st.warning("No date column found, creating a placeholder")
-                            chunk['DATE'] = pd.to_datetime('2023-01-01')
-                    else:
-                        chunk['DATE'] = pd.to_datetime(chunk['DATE'])
-                    
-                    chunks.append(chunk)
-                    gc.collect()
-                
-                df = pd.concat(chunks, ignore_index=True)
-                gc.collect()
-            else:
-                df = pd.read_csv(file_path, low_memory=False)
-                # Check if DATE column exists
-                if 'DATE' not in df.columns:
-                    st.error(f"DATE column not found in dataframe. Available columns: {df.columns.tolist()}")
-                    # Try to find a column that might be the date column
-                    for col in df.columns:
-                        if 'date' in col.lower():
-                            st.write(f"Found possible date column: {col}")
-                            df['DATE'] = pd.to_datetime(df[col])
-                            break
-                    else:
-                        # If no date column found, create a placeholder
-                        st.warning("No date column found, creating a placeholder")
-                        df['DATE'] = pd.to_datetime('2023-01-01')
-                else:
-                    df['DATE'] = pd.to_datetime(df['DATE'])
-            
-            return df
-        else:
-            st.error(f"Data file not found at: {file_path}")
+        if not csv_parts:
+            st.error("No data files found in the data directory")
             return pd.DataFrame()
+            
+        # Process each file
+        all_dfs = []
+        
+        for part_file in csv_parts:
+            # Load the file
+            df = pd.read_csv(part_file, low_memory=False)
+                
+            # Convert DATE column if it exists
+            if 'DATE' in df.columns:
+                df['DATE'] = pd.to_datetime(df['DATE'])
+            
+            all_dfs.append(df)
+            gc.collect()  # Force garbage collection
+            
+        # Combine all parts
+        combined_df = pd.concat(all_dfs, ignore_index=True)
+        
+        # Clear memory
+        del all_dfs
+        gc.collect()
+        
+        return combined_df
             
     except Exception as e:
         st.error(f"Error loading data: {str(e)}")
         import traceback
         st.code(traceback.format_exc())
-        return pd.DataFrame({'DATE': [pd.to_datetime('2023-01-01')]})  # Return a minimal DataFrame with DATE column
+        return pd.DataFrame()
 
 # Calculate returns
 @st.cache_data
