@@ -68,6 +68,33 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# Add at the beginning of your app.py
+def check_data_file():
+    import os
+    
+    file_path = "data/final_adjusted_stock_data.csv"
+    
+    if not os.path.exists(file_path):
+        st.error("Data file not found!")
+        st.stop()
+    
+    file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
+    
+    if file_size_mb < 1.0:  # Less than 1MB, likely a pointer
+        with open(file_path, 'r') as f:
+            content = f.read(100)
+            if "git-lfs" in content:
+                st.error("Data file is a Git LFS pointer, not the actual content!")
+                st.info("The app needs the full data file to function properly.")
+                st.code(content)
+                st.stop()
+    else:
+        st.success(f"Data file found with size: {file_size_mb:.2f} MB")
+
+# Call this function early in your app
+check_data_file()
+
+
 # Helper function to create tooltips
 def tooltip(text, tooltip_text):
     return f"""
