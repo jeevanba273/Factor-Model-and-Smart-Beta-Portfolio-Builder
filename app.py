@@ -85,61 +85,83 @@ st.write("Analyze factor exposures and build custom factor-based portfolios usin
 def load_data():
     try:
         # Try different possible paths for different platforms
-        possible_paths = [
-            "data/final_adjusted_stock_data.csv",
-            "./data/final_adjusted_stock_data.csv", 
-            "../data/final_adjusted_stock_data.csv",
-            "/app/data/final_adjusted_stock_data.csv"
-        ]
+        file_path = "data/final_adjusted_stock_data.csv"
         
-        # Debug information to see what's happening
-        current_dir = os.getcwd()
-        st.write(f"Current working directory: {current_dir}")
-        available_dirs = os.listdir()
-        st.write(f"Available directories: {available_dirs}")
+        st.write(f"Current working directory: {os.getcwd()}")
+        st.write(f"Available directories: {os.listdir()}")
         
-        # Check if any of the possible paths exist
-        file_path = None
-        for path in possible_paths:
-            if os.path.exists(path):
-                file_path = path
-                st.write(f"Found data file at: {file_path}")
-                break
-        
-        if file_path is None:
-            st.error("Data file not found. Please check if the file exists and is in the correct location.")
-            return pd.DataFrame()
+        if os.path.exists(file_path):
+            st.write(f"Found data file at: {file_path}")
+            # Check file size
+            file_size = os.path.getsize(file_path)
+            st.write(f"File size: {file_size / (1024*1024):.2f} MB")
             
-        # Continue with your existing chunking logic
-        file_size_gb = os.path.getsize(file_path) / (1024 * 1024 * 1024)
-        
-        if file_size_gb > 0.5:  # If file is larger than 500MB
-            # Use chunking for large files
-            chunk_size = 500000  # Adjust based on available memory
-            chunks = []
+            # Preview the file content
+            with open(file_path, 'r') as f:
+                preview = f.read(1000)  # Read first 1000 characters
+            st.write("File content preview:")
+            st.code(preview)
             
-            for chunk in pd.read_csv(file_path, chunksize=chunk_size, low_memory=False):
-                chunk['DATE'] = pd.to_datetime(chunk['DATE'])
-                chunks.append(chunk)
+            # Try loading with pandas and check columns
+            df = pd.read_csv(file_path, nrows=5)  # Just load a few rows
+            st.write("DataFrame columns:", df.columns.tolist())
+            st.write("DataFrame preview:")
+            st.write(df.head())
+            
+            # Now load the whole file
+            if file_size > 500 * 1024 * 1024:  # If larger than 500MB
+                chunk_size = 500000
+                chunks = []
+                for chunk in pd.read_csv(file_path, chunksize=chunk_size, low_memory=False):
+                    # Check if DATE column exists in this chunk
+                    if 'DATE' not in chunk.columns:
+                        st.error(f"DATE column not found in dataframe. Available columns: {chunk.columns.tolist()}")
+                        # Try to find a column that might be the date column
+                        for col in chunk.columns:
+                            if 'date' in col.lower():
+                                st.write(f"Found possible date column: {col}")
+                                chunk['DATE'] = pd.to_datetime(chunk[col])
+                                break
+                        else:
+                            # If no date column found, create a placeholder
+                            st.warning("No date column found, creating a placeholder")
+                            chunk['DATE'] = pd.to_datetime('2023-01-01')
+                    else:
+                        chunk['DATE'] = pd.to_datetime(chunk['DATE'])
+                    
+                    chunks.append(chunk)
+                    gc.collect()
                 
-                # Force garbage collection after processing each chunk
+                df = pd.concat(chunks, ignore_index=True)
                 gc.collect()
-                
-            df = pd.concat(chunks, ignore_index=True)
-            # Force garbage collection after concatenation
-            gc.collect()
+            else:
+                df = pd.read_csv(file_path, low_memory=False)
+                # Check if DATE column exists
+                if 'DATE' not in df.columns:
+                    st.error(f"DATE column not found in dataframe. Available columns: {df.columns.tolist()}")
+                    # Try to find a column that might be the date column
+                    for col in df.columns:
+                        if 'date' in col.lower():
+                            st.write(f"Found possible date column: {col}")
+                            df['DATE'] = pd.to_datetime(df[col])
+                            break
+                    else:
+                        # If no date column found, create a placeholder
+                        st.warning("No date column found, creating a placeholder")
+                        df['DATE'] = pd.to_datetime('2023-01-01')
+                else:
+                    df['DATE'] = pd.to_datetime(df['DATE'])
+            
             return df
         else:
-            # For smaller files, load directly
-            df = pd.read_csv(file_path, low_memory=False)
-            df['DATE'] = pd.to_datetime(df['DATE'])
-            return df
+            st.error(f"Data file not found at: {file_path}")
+            return pd.DataFrame()
+            
     except Exception as e:
         st.error(f"Error loading data: {str(e)}")
-        # Show the full error to debug
         import traceback
         st.code(traceback.format_exc())
-        return pd.DataFrame()
+        return pd.DataFrame({'DATE': [pd.to_datetime('2023-01-01')]})  # Return a minimal DataFrame with DATE column
 
 # Calculate returns
 @st.cache_data
