@@ -7,6 +7,13 @@ import streamlit as st
 from datetime import datetime, timedelta
 import plotly.express as px
 import plotly.graph_objects as go
+import gc
+import time
+import os
+import warnings
+
+# Suppress warnings
+warnings.filterwarnings('ignore')
 
 # Inject custom CSS to center ONLY the date picker without affecting dropdowns
 st.markdown(
@@ -73,13 +80,38 @@ def tooltip(text, tooltip_text):
 st.title("Indian Market Factor Model & Smart Beta Portfolio Builder")
 st.write("Analyze factor exposures and build custom factor-based portfolios using Indian stock market data")
 
-# Load data function
+# Memory-efficient data loading with chunking
 @st.cache_data
 def load_data():
-    # Read CSV with low_memory=False to avoid mixed type warnings
-    df = pd.read_csv("data/final_adjusted_stock_data.csv", low_memory=False)
-    df['DATE'] = pd.to_datetime(df['DATE'])
-    return df
+    try:
+        # Check file size first
+        file_path = "data/final_adjusted_stock_data.csv"
+        file_size_gb = os.path.getsize(file_path) / (1024 * 1024 * 1024)
+        
+        if file_size_gb > 0.5:  # If file is larger than 500MB
+            # Use chunking for large files
+            chunk_size = 500000  # Adjust based on available memory
+            chunks = []
+            
+            for chunk in pd.read_csv(file_path, chunksize=chunk_size, low_memory=False):
+                chunk['DATE'] = pd.to_datetime(chunk['DATE'])
+                chunks.append(chunk)
+                
+                # Force garbage collection after processing each chunk
+                gc.collect()
+                
+            df = pd.concat(chunks, ignore_index=True)
+            # Force garbage collection after concatenation
+            gc.collect()
+            return df
+        else:
+            # For smaller files, load directly
+            df = pd.read_csv(file_path, low_memory=False)
+            df['DATE'] = pd.to_datetime(df['DATE'])
+            return df
+    except Exception as e:
+        st.error(f"Error loading data: {str(e)}")
+        return pd.DataFrame()
 
 # Calculate returns
 @st.cache_data
@@ -217,7 +249,7 @@ def backtest_factor_portfolio(df, factor_weights, active_factors, top_n=30, star
     """
     if not active_factors:
         st.error("Please select at least one factor to build the portfolio.")
-        return None, None, None
+        return None, None, None, None
         
     # Set default dates if not provided
     if end_date is None:
@@ -231,7 +263,7 @@ def backtest_factor_portfolio(df, factor_weights, active_factors, top_n=30, star
     # Check if there's enough data in the selected period
     if len(backtest_data) < 10:  # arbitrary minimum number of data points
         st.error("Insufficient data in the selected date range. Please select a wider range.")
-        return None, None, None
+        return None, None, None, None
     
     # Get unique dates for rebalancing
     all_dates = sorted(backtest_data['DATE'].unique())
@@ -295,7 +327,7 @@ def backtest_factor_portfolio(df, factor_weights, active_factors, top_n=30, star
     progress_bar = st.progress(0)
     
     for i in range(len(rebalance_dates)-1):
-        # Update progress bar
+        # Update progress bar on every iteration
         progress_bar.progress((i + 1) / (len(rebalance_dates)-1))
         
         current_date = rebalance_dates[i]
@@ -802,22 +834,39 @@ if start_datetime >= end_datetime:
     st.sidebar.error("End date must be after start date")
     end_datetime = start_datetime + pd.Timedelta(days=1)
 
+# Add option to reduce data size for faster processing
+st.sidebar.header("Performance Options")
+use_reduced_dataset = st.sidebar.checkbox("Use reduced dataset (faster)", value=True, key="use_reduced_dataset")
+
+if use_reduced_dataset:
+    st.sidebar.info("Using a reduced dataset for faster processing. Uncheck for full analysis.")
+
 # Add Run Analysis button to sidebar
 st.sidebar.header("Run Analysis")
 run_button = st.sidebar.button("Run Analysis", on_click=lambda: setattr(st.session_state, 'run_analysis', True))
 
 # Only run analysis if the button is clicked
 if st.session_state.run_analysis:
-    with st.spinner("Running analysis..."):
-        # Check if any factors are active
-        if active_factors:
+    # Check if any factors are active
+    if active_factors:
+        try:
+            # Apply dataset reduction if selected
+            working_data = data
+            if use_reduced_dataset:
+                # Filter to relevant dates to reduce processing load
+                date_mask = (working_data['DATE'] >= start_datetime - pd.Timedelta(days=400)) & (working_data['DATE'] <= end_datetime)
+                working_data = working_data[date_mask].copy()
+                st.info("Using reduced dataset for faster processing...")
+            
             # Calculate factor model
-            factor_df = create_factor_model(data, active_factors)
+            st.write("Calculating factor model...")
+            factor_df = create_factor_model(working_data, active_factors)
             st.session_state.factor_data = factor_df
             
             # Run backtest
+            st.write("Running backtest... This may take a few minutes.")
             results, metrics, holdings, drawdown_df = backtest_factor_portfolio(
-                data, 
+                working_data, 
                 st.session_state.factor_weights,
                 active_factors,
                 top_n=num_stocks, 
@@ -831,9 +880,12 @@ if st.session_state.run_analysis:
             st.session_state.metrics = metrics
             st.session_state.holdings = holdings
             st.session_state.drawdown_data = drawdown_df
-        else:
-            st.error("Please select at least one factor to build the portfolio.")
         
+        except Exception as e:
+            st.error(f"Error during analysis: {str(e)}")
+    else:
+        st.error("Please select at least one factor to build the portfolio.")
+    
     # Reset flag after analysis is complete
     st.session_state.run_analysis = False
 
