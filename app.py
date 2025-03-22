@@ -16,25 +16,29 @@ import warnings
 # Suppress warnings
 warnings.filterwarnings('ignore')
 
-# Check for split data files
+# Check for year-based data files
 def check_data_files():
     # Look for year-based CSV files
     data_dir = "data"
+    if not os.path.exists(data_dir):
+        st.error(f"Data directory '{data_dir}' not found!")
+        return False, []
+        
     all_files = os.listdir(data_dir)
     csv_files = [f for f in all_files if f.startswith("data_") and f.endswith(".csv")]
     
     if not csv_files:
         st.error("No data files found! Please make sure the year-based CSV files are uploaded to the data directory.")
         st.info("The app is looking for files named 'data_YYYY.csv' in the data directory.")
-        return False
+        return False, []
     
     years = sorted([int(f.replace("data_", "").replace(".csv", "")) for f in csv_files])
-    st.success(f"Found data for years: {years}")
+    st.success(f"Data present for years: {years}")
     
     # Check the size of the files
     total_size_mb = sum(os.path.getsize(os.path.join(data_dir, f)) for f in csv_files) / (1024 * 1024)
     
-    return True
+    return True, years
 
 # Inject custom CSS to center ONLY the date picker without affecting dropdowns
 st.markdown(
@@ -102,44 +106,55 @@ st.title("Indian Market Factor Model & Smart Beta Portfolio Builder")
 st.write("Analyze factor exposures and build custom factor-based portfolios using Indian stock market data")
 
 # Verify that data files are available
-if not check_data_files():
+files_available, available_years = check_data_files()
+if not files_available:
     st.stop()
 
-# Modified load_data function to handle split files
+# Modified load_data function to load only needed years
 @st.cache_data
-def load_data(start_year=None, end_year=None):
+def load_data(start_date=None, end_date=None):
     try:
-        # Look for year-based CSV files
         data_dir = "data"
-        all_files = os.listdir(data_dir)
-        csv_files = [f for f in all_files if f.startswith("data_") and f.endswith(".csv")]
         
-        if not csv_files:
-            st.error("No data files found in the data directory")
+        # If no date range specified, return empty DataFrame
+        if start_date is None or end_date is None:
             return pd.DataFrame()
             
-        # Filter files by year if specified
-        if start_year is not None and end_year is not None:
-            # Extract years from filenames
-            file_years = [int(f.replace("data_", "").replace(".csv", "")) for f in csv_files]
-            selected_years = [y for y in file_years if start_year <= y <= end_year]
-            selected_files = [f"data_{year}.csv" for year in selected_years]
-            csv_files = [f for f in csv_files if f in selected_files]
+        # Add lookback period for factor calculations (1 year)
+        lookback_start = start_date - pd.Timedelta(days=400)  # ~1 year + buffer
+        
+        # Convert dates to years
+        lookback_year = lookback_start.year
+        end_year = end_date.year
+        
+        # Select needed years including lookback period
+        years_to_load = [y for y in available_years if lookback_year <= y <= end_year]
+        
+        if not years_to_load:
+            st.warning(f"No data available for years {lookback_year}-{end_year}")
+            return pd.DataFrame()
+            
+        # Show which years are being loaded
+        st.write(f"Loading data for years: {years_to_load} (including lookback period)")
+        
+        # Files to load
+        files_to_load = [f"data_{year}.csv" for year in years_to_load]
         
         # Process each file
         all_dfs = []
-        
-        for csv_file in sorted(csv_files):
+        for csv_file in files_to_load:
             file_path = os.path.join(data_dir, csv_file)
-            # Load the file
             df = pd.read_csv(file_path, low_memory=False)
-                
+            
             # Convert DATE column
             if 'DATE' in df.columns:
                 df['DATE'] = pd.to_datetime(df['DATE'])
             
             all_dfs.append(df)
             gc.collect()  # Force garbage collection
+        
+        if not all_dfs:
+            return pd.DataFrame()
             
         # Combine all parts
         combined_df = pd.concat(all_dfs, ignore_index=True)
@@ -834,12 +849,9 @@ rebalance_freq = st.sidebar.selectbox(
 # Date range selection for backtesting
 st.sidebar.header("Backtest Period")
 
-# Load data
-data = load_data()
-
-# Set min and max dates from the data
-min_date = data['DATE'].min().date()
-max_date = data['DATE'].max().date()
+# Get min and max dates from available years
+min_date = datetime(2010, 1, 4).date()  # Hard-coded minimum date
+max_date = datetime(2025, 2, 27).date() # Hard-coded maximum date
 
 # Default to 1 year backtest
 default_start_date = max_date - timedelta(days=365)
@@ -855,16 +867,16 @@ with st.sidebar.container():
     start_date = st.date_input(
         "Start Date",
         value=default_start_date,
-        min_value=min_date,
-        max_value=max_date,
+        min_value=datetime(2010, 1, 4).date(),  # Hard-coded minimum date
+        max_value=datetime(2025, 2, 27).date(), # Hard-coded maximum date 
         key="start_date_input"
     )
     
     end_date = st.date_input(
         "End Date",
         value=max_date,
-        min_value=min_date,
-        max_value=max_date,
+        min_value=datetime(2010, 1, 4).date(),  # Hard-coded minimum date
+        max_value=datetime(2025, 2, 27).date(), # Hard-coded maximum date
         key="end_date_input"
     )
 
@@ -893,16 +905,27 @@ if st.session_state.run_analysis:
     # Check if any factors are active
     if active_factors:
         try:
+            # Now load only the data for the selected date range
+            st.write("Loading data for selected date range...")
+            data = load_data(start_datetime, end_datetime)
+            
+            if data.empty:
+                st.error("No data available for the selected date range")
+                st.session_state.run_analysis = False
+                st.stop()
+            
             # Apply dataset reduction if selected
             working_data = data
             if use_reduced_dataset:
                 # Filter to relevant dates to reduce processing load
-                date_mask = (working_data['DATE'] >= start_datetime - pd.Timedelta(days=400)) & (working_data['DATE'] <= end_datetime)
+                lookback_days = 400  # For momentum calculations we need historical data
+                # Ensure we don't go beyond available data
+                actual_start = max(working_data['DATE'].min(), start_datetime - pd.Timedelta(days=lookback_days))
+                date_mask = (working_data['DATE'] >= actual_start) & (working_data['DATE'] <= end_datetime)
                 working_data = working_data[date_mask].copy()
                 st.info("Using reduced dataset for faster processing...")
             
             # Calculate factor model
-            st.write("Calculating factor model...")
             factor_df = create_factor_model(working_data, active_factors)
             st.session_state.factor_data = factor_df
             
@@ -926,6 +949,8 @@ if st.session_state.run_analysis:
         
         except Exception as e:
             st.error(f"Error during analysis: {str(e)}")
+            import traceback
+            st.code(traceback.format_exc())
     else:
         st.error("Please select at least one factor to build the portfolio.")
     
