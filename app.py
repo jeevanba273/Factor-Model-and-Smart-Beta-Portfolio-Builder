@@ -102,6 +102,7 @@ def tooltip(text, tooltip_text):
     """
 
 # App title and description
+st.set_page_config(page_title="Smart-Beta-Portfolio-Builder", layout="wide")
 st.title("Indian Market Factor Model & Smart Beta Portfolio Builder")
 st.write("Analyze factor exposures and build custom factor-based portfolios using Indian stock market data")
 
