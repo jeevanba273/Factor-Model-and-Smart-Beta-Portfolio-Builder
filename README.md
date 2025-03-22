@@ -288,7 +288,7 @@ Visit the live app here: [Indian Market Factor Model on Railway](https://smart-b
 ## 👤 Author
 
 Created by **Jeevan B A**  
-[![LinkedIn](https://img.shields.io/badge/LinkedIn-Jeevan_BA-blue)](https://www.linkedin.com/in/jeevanba273/)
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-Jeevan_B_A-blue)](https://www.linkedin.com/in/jeevanba273/)
 
 ---
 
