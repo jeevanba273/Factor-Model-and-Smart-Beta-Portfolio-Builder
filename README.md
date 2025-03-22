@@ -3,6 +3,10 @@
 [![Railway App](https://img.shields.io/badge/Railway-Deployed-success)](https://smart-beta-portfolio-builder.up.railway.app/)
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/release/python-3120/)
 [![GitHub stars](https://img.shields.io/github/stars/jeevanba273/Factor-Model-and-Smart-Beta-Portfolio-Builder?style=social)](https://github.com/jeevanba273/Factor-Model-and-Smart-Beta-Portfolio-Builder)
+![GitHub forks](https://img.shields.io/github/forks/jeevanba273/Factor-Model-and-Smart-Beta-Portfolio-Builder?style=social)
+![GitHub last commit](https://img.shields.io/github/last-commit/jeevanba273/Factor-Model-and-Smart-Beta-Portfolio-Builder)
+![GitHub repo size](https://img.shields.io/github/repo-size/jeevanba273/Factor-Model-and-Smart-Beta-Portfolio-Builder?color=blue&style=flat-square)
+
 
 > **Live App**: [Factor Model & Smart Beta Portfolio Builder on Railway](https://smart-beta-portfolio-builder.up.railway.app/)
 
