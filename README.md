@@ -1,4 +1,4 @@
-# 📈 Indian Market Factor Model & Smart Beta Portfolio Builder
+# 📈 Factor Model & Smart Beta Portfolio Builder
 
 [![Railway App](https://img.shields.io/badge/Railway-Deployed-success)](https://smart-beta-portfolio-builder.up.railway.app/)
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/release/python-3120/)
