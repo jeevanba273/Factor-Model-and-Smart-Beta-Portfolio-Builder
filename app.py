@@ -18,28 +18,21 @@ warnings.filterwarnings('ignore')
 
 # Check for split data files
 def check_data_files():
-    # Look for split CSV files
+    # Look for year-based CSV files
     data_dir = "data"
-    csv_parts = sorted(glob.glob(f"{data_dir}/part_*.csv"))
+    all_files = os.listdir(data_dir)
+    csv_files = [f for f in all_files if f.startswith("data_") and f.endswith(".csv")]
     
-    if not csv_parts:
-        st.error("No data files found! Please make sure the split CSV files are uploaded to the data directory.")
-        st.info("The app is looking for files named 'part_XX.csv' in the data directory.")
-        
-        # Show available files/directories for debugging
-        if os.path.exists(data_dir):
-            files = os.listdir(data_dir)
-            st.write(f"Files found in data directory: {files}")
-        else:
-            st.write("Data directory not found!")
-            
+    if not csv_files:
+        st.error("No data files found! Please make sure the year-based CSV files are uploaded to the data directory.")
+        st.info("The app is looking for files named 'data_YYYY.csv' in the data directory.")
         return False
     
-    st.success(f"Found {len(csv_parts)} data file parts!")
+    years = sorted([int(f.replace("data_", "").replace(".csv", "")) for f in csv_files])
+    st.success(f"Found data for years: {years}")
     
     # Check the size of the files
-    total_size_mb = sum(os.path.getsize(f) for f in csv_parts) / (1024 * 1024)
-    st.write(f"Total data size: {total_size_mb:.2f} MB")
+    total_size_mb = sum(os.path.getsize(os.path.join(data_dir, f)) for f in csv_files) / (1024 * 1024)
     
     return True
 
@@ -114,24 +107,34 @@ if not check_data_files():
 
 # Modified load_data function to handle split files
 @st.cache_data
-def load_data():
+def load_data(start_year=None, end_year=None):
     try:
-        # Look for split CSV files
+        # Look for year-based CSV files
         data_dir = "data"
-        csv_parts = sorted(glob.glob(f"{data_dir}/part_*.csv"))
+        all_files = os.listdir(data_dir)
+        csv_files = [f for f in all_files if f.startswith("data_") and f.endswith(".csv")]
         
-        if not csv_parts:
+        if not csv_files:
             st.error("No data files found in the data directory")
             return pd.DataFrame()
             
+        # Filter files by year if specified
+        if start_year is not None and end_year is not None:
+            # Extract years from filenames
+            file_years = [int(f.replace("data_", "").replace(".csv", "")) for f in csv_files]
+            selected_years = [y for y in file_years if start_year <= y <= end_year]
+            selected_files = [f"data_{year}.csv" for year in selected_years]
+            csv_files = [f for f in csv_files if f in selected_files]
+        
         # Process each file
         all_dfs = []
         
-        for part_file in csv_parts:
+        for csv_file in sorted(csv_files):
+            file_path = os.path.join(data_dir, csv_file)
             # Load the file
-            df = pd.read_csv(part_file, low_memory=False)
+            df = pd.read_csv(file_path, low_memory=False)
                 
-            # Convert DATE column if it exists
+            # Convert DATE column
             if 'DATE' in df.columns:
                 df['DATE'] = pd.to_datetime(df['DATE'])
             
